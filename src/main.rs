@@ -1,15 +1,23 @@
+use std::env;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Write};
+
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::io::{BufReader, BufRead};
 
-fn main() {
+static PATHCMD: &str = "C:\\Tools\\SteamCMD\\";
+static APPID: &str = "294100";
 
+static _PATHCONTENT: &str = "steamapps\\workshop\\content\\";
+
+fn download_item(modid: &str, cmdpath: &str, appid: &str) -> bool {
     // Run the executable with the specified parameters
-    let mut command = Command::new("C:\\Tools\\SteamCMD\\steamcmd.exe")
+    let mut command = Command::new(cmdpath.to_owned() + "steamcmd.exe")
         .arg("+login")
         .arg("anonymous")
         .arg("+workshop_download_item")
-        .arg("294100")
-        .arg("2897974516")
+        .arg(appid)
+        .arg(modid)
         .arg("+quit")
         .stdout(Stdio::piped())
         .spawn()
@@ -17,15 +25,266 @@ fn main() {
 
     let reader = BufReader::new(command.stdout.take().unwrap());
 
+    // We want to return the line of the failed urls
+
     // Wait for success message in the output
     for line in reader.lines() {
         let line = line.unwrap();
-        println!("{}", line);
+
         if line.contains("Success") {
             println!("Found success!");
+            return true;
         }
     }
 
-    println!("Made it out");
+    false
 }
 
+fn remove_done(filename: &str, lines_to_remove: Vec<usize>) -> io::Result<()> {
+    // Open the file in read-write mode
+    let mut file = OpenOptions::new().read(true).write(true).open(filename)?;
+
+    // Read the contents of the file into a String
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    // Remove the lines that we want to delete
+    let lines: Vec<&str> = contents.split('\n').collect();
+    let mut modified_contents = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        if !lines_to_remove.contains(&i) {
+            modified_contents.push_str(line);
+            modified_contents.push('\n');
+        }
+    }
+
+    // Open the file in write mode
+    let mut file = File::create(filename)?;
+
+    // Write the modified contents back to the file
+    file.write_all(modified_contents.as_bytes())?;
+
+    Ok(())
+}
+
+fn get_urls(filename: &str) -> Vec<String> {
+    // Construct the path to the file by joining the filename with the current working directory
+    // let path = std::env::current_dir().unwrap().join(filename);
+
+    // Open the file in read-only mode
+    let file = fs::File::open(filename).expect("Failed to open file");
+    let reader = BufReader::new(file);
+
+    // Read each line from the file and store it in the `urls` vector
+    let mut urls = Vec::new();
+    for line in reader.lines() {
+        let line = line.expect("Failed to read line from file");
+        urls.push(line);
+    }
+
+    urls
+}
+
+fn extract_id(url: &str) -> String {
+    // Split the URL into multiple substrings using the "&searchtext=" separator
+    let parts: Vec<&str> = url.split("?id=").collect();
+
+    // Return the second substring, which is the part of the URL that we want to extract
+    let id: &str = parts.get(1).map(|x| *x).unwrap_or("");
+
+    if id.contains('&') {
+        let parts2: Vec<&str> = id.split("&").collect();
+
+        parts2.get(0).map(|x| *x).unwrap_or("").to_owned()
+    } else {
+        id.to_owned()
+    }
+}
+
+// Get rid of the characters that are not allowed in the folder name
+fn clean_folder_name(s: &str) -> String {
+    let stripped: String = s
+        .chars()
+        .filter(|c| !c.is_ascii_control())
+        .filter(|c| *c != '\\')
+        .filter(|c| *c != '/')
+        .filter(|c| *c != ':')
+        .filter(|c| *c != '*')
+        .filter(|c| *c != '?')
+        .filter(|c| *c != '"')
+        .filter(|c| *c != '<')
+        .filter(|c| *c != '>')
+        .filter(|c| *c != '|')
+        .filter(|c| *c != ' ')
+        .collect();
+
+    stripped
+}
+
+fn get_mod_name(path: &str, file_name: &str, start_tag: &str) -> Option<String> {
+    // Try to open the file
+    let full_path: String = format!("{}\\{}", path, file_name);
+    let file: File = match File::open(&full_path) {
+        Ok(f) => f,
+        Err(_) => {
+            println!("Could not open File ERROR:");
+            return None;
+        }
+    };
+
+    let reader: BufReader<File> = BufReader::new(file);
+
+    // Go through each line and find the name tag for the mod
+    for line in reader.lines() {
+        // Check if we read the line correctly
+        let line: String = match line {
+            Ok(s) => s,
+            Err(_) => {
+                println!("Failed to read line");
+                return None;
+            }
+        };
+
+        if !line.contains(start_tag) {
+            continue;
+        }
+
+        // Get index for the end of the first tag
+        let first: usize = match line.find('>') {
+            Some(n) => n,
+            None => {
+                println!("Failed to find the start tag in file: {}", &full_path);
+                return None;
+            }
+        };
+
+        // Get index for start of end tag
+        let second: usize = match line[&first + 1..].find('<') {
+            Some(n) => n,
+            None => {
+                println!("Failed to find the end tag in file: {}", &full_path);
+                return None;
+            }
+        };
+
+        // Use both to get the name of the mod
+        match line.get(first + 1..first + second + 1) {
+            Some(s) => return Some(s.to_string()),
+            None => {
+                println!("Failed to get name from file: {}", &full_path);
+                return None;
+            }
+        };
+    }
+
+    println!("No name found in file: {}", full_path);
+    None
+}
+
+fn rename_folder(old: &str) {
+    let path: String = old.to_owned() + "\\About";
+    let file_name: &str = "About.xml";
+    let start_tag: &str = "<name>";
+
+    // Grab mod name
+    let mut data: String = match get_mod_name(&path, file_name, start_tag) {
+        Some(s) => s,
+        None => {
+            println!("Faild to get the mod name, rename unsuccessful {}", path);
+            return;
+        }
+    };
+
+    // Strip bad characters
+    data = clean_folder_name(&data);
+
+    // Rename the folder
+    let modpath = Path::new(&old);
+    let new_path = modpath.with_file_name(&data);
+
+    match fs::rename(&modpath, &new_path) {
+        Ok(_) => return,
+        Err(e) => {
+            println!(
+                "Failed to rename {} to {} error3: {}",
+                &modpath.to_str().unwrap(),
+                &new_path.to_str().unwrap(),
+                e.to_string()
+            );
+        }
+    }
+}
+
+fn start_rename(directory: &str) {
+    for entry in fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_dir() {
+            // rename the directory
+            rename_folder(path.to_str().unwrap())
+        }
+    }
+}
+
+fn main() {
+    // Get cmdline args mainpath, contentpath, game app id
+
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() != 2 {
+        println!("Usage: program <arg>");
+        return;
+    }
+
+    let arg = &args[1];
+
+    if arg == "rename" {
+        println!("Starting renaming");
+        start_rename(".\\data\\mods");
+    } else if arg == "download" {
+        println!("Starting downloads");
+        // Grab urls from data file
+        let urls: Vec<String> = get_urls(".\\data\\urls.txt");
+        let mut succeeded: Vec<usize> = Vec::new();
+        let mut linecount = 0;
+        //Get id for each url
+        for url in urls.iter() {
+            let id = extract_id(url);
+            if id.is_empty() {
+                println!(
+                    "Tried to read a url and got an empty line{}: {}",
+                    linecount, url
+                );
+                continue;
+            }
+            println!("ID: {}", id);
+
+            // Download each id
+            let res = download_item(&id, &PATHCMD, &APPID);
+            if res == false {
+                println!("Failed to download id: {}", id);
+            } else {
+                // Save for later so we can remove from the urls file
+                succeeded.push(linecount);
+            }
+            linecount += 1;
+        }
+
+        if succeeded.is_empty() {
+            println!("Failed to download any mods, check your urls.txt file and try again");
+            return;
+        }
+        // Clean up finished urls
+
+        match remove_done(".\\data\\urls.txt", succeeded) {
+            Ok(_) => {
+                println!("Cleaned up urls file successfully");
+                println!(
+                    "Go here: {} to get your mods",
+                    PATHCMD.to_owned() + _PATHCONTENT + APPID
+                );
+            }
+            Err(_) => println!("Failed to clean up urls file"),
+        };
+    }
+}

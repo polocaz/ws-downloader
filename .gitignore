@@ -1,1 +1,5 @@
+/misc
+/data/mods
+/zips
 /target
+*.lock
