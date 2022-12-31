@@ -2,13 +2,18 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 static PATHCMD: &str = "C:\\Tools\\SteamCMD\\";
-static APPID: &str = "294100";
 
 static _PATHCONTENT: &str = "steamapps\\workshop\\content\\";
+
+struct ModInfo {
+    path: String,
+    file_name: String,
+    start_tag: String,
+}
 
 fn download_item(modid: &str, cmdpath: &str, appid: &str) -> bool {
     // Run the executable with the specified parameters
@@ -121,6 +126,7 @@ fn clean_folder_name(s: &str) -> String {
     stripped
 }
 
+// Get mod name for a rimworld mod
 fn get_mod_name(path: &str, file_name: &str, start_tag: &str) -> Option<String> {
     // Try to open the file
     let full_path: String = format!("{}\\{}", path, file_name);
@@ -181,22 +187,112 @@ fn get_mod_name(path: &str, file_name: &str, start_tag: &str) -> Option<String> 
     None
 }
 
-fn rename_folder(old: &str) {
-    let path: String = old.to_owned() + "\\About";
-    let file_name: &str = "About.xml";
-    let start_tag: &str = "<name>";
+fn find_file_from_ext(dir: &String, ext: &String) -> String {
+    for entry in Path::new(dir)
+        .read_dir()
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+    {
+        if entry.path().extension() == Some(ext.as_ref()) {
+            println!("Found file: {}", entry.path().display());
+            let whole_name = entry
+                .path()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
 
-    // Grab mod name
-    let mut data: String = match get_mod_name(&path, file_name, start_tag) {
-        Some(s) => s,
-        None => {
-            println!("Faild to get the mod name, rename unsuccessful {}", path);
-            return;
+            let trimmed_name = match whole_name.rfind('.') {
+                Some(i) => &whole_name[..i],
+                None => &whole_name,
+            };
+
+            if trimmed_name.find('.').is_none() {
+                return trimmed_name.to_owned();
+            }
         }
-    };
+    }
 
-    // Strip bad characters
-    data = clean_folder_name(&data);
+    "".to_owned()
+    // Path::new(dir)
+    //     .read_dir()
+    //     .unwrap()
+    //     .filter_map(|entry| entry.ok())
+    //     .find(|entry| entry.path().extension() == Some(ext.as_ref()))
+    //     .map(|entry| entry.path())
+    //     .unwrap_or_else(|| {
+    //         println!("Error: Could not find .mod file in {}", dir);
+    //         PathBuf::new()
+    //     })
+}
+
+fn find_kenshimod_file(dir: &String) -> Option<String> {
+    // Check if the directory exists
+    if !Path::new(dir).exists() || !Path::new(dir).is_dir() {
+        println!("Error: {} is not a directory", dir);
+        return None;
+    }
+
+    // Search the directory for a .mod file
+    let mod_file = find_file_from_ext(dir, &"mod".to_owned());
+
+    if !mod_file.is_empty() {
+        return Some(mod_file);
+    }
+
+    None
+}
+
+fn get_modinfo(oldpath: &String, appid: &String) -> Option<ModInfo> {
+    if appid == "291400" {
+        Some(ModInfo {
+            path: oldpath.to_owned() + "\\About",
+            file_name: "About.xml".to_owned(),
+            start_tag: "<name>".to_owned(),
+        })
+    } else if appid == "233860" {
+        // Get the name of the kenshi mod .mod file so we can rename the folder
+        let kmod_name = match find_kenshimod_file(&oldpath.to_owned()) {
+            Some(filename) => filename,
+            None => return None,
+        };
+        Some(ModInfo {
+            path: oldpath.to_owned(),
+            file_name: kmod_name,
+            start_tag: "<name>".to_owned(),
+        })
+    } else {
+        None
+    }
+}
+
+fn rename_folder(old: &String, appid: &String) {
+    // Defaulted for rimworld
+
+    let info = match get_modinfo(&old.to_owned(), appid) {
+        Some(info) => info,
+        None => return,
+    };
+    let mut data: String;
+    // Grab mod name
+    if appid != "233860" {
+        data = match get_mod_name(&info.path, &info.file_name, &info.start_tag) {
+            Some(s) => s,
+            None => {
+                println!(
+                    "Failed to get the mod name, rename unsuccessful {}",
+                    &info.path
+                );
+                return;
+            }
+        };
+
+        // Strip bad characters
+        data = clean_folder_name(&data);
+    } else {
+        data = info.file_name;
+    }
 
     // Rename the folder
     let modpath = Path::new(&old);
@@ -215,13 +311,13 @@ fn rename_folder(old: &str) {
     }
 }
 
-fn start_rename(directory: &str) {
+fn start_rename(directory: &str, appid: &String) {
     for entry in fs::read_dir(directory).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_dir() {
             // rename the directory
-            rename_folder(path.to_str().unwrap())
+            rename_folder(&path.to_str().unwrap().to_owned(), &appid)
         }
     }
 }
@@ -231,16 +327,23 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 2 {
-        println!("Usage: program <arg>");
+    // 233860
+    let mut appid = "294100".to_owned();
+
+    if args.len() < 2 {
+        println!(
+            "Usage: scmd-downloader.exe <arg> <appid> or scmd-downloader.exe <arg> for rimworld"
+        );
         return;
+    } else if args.len() == 3 {
+        appid = args[2].to_owned();
     }
 
     let arg = &args[1];
 
     if arg == "rename" {
         println!("Starting renaming");
-        start_rename(".\\data\\mods");
+        start_rename(".\\data\\mods", &appid);
     } else if arg == "download" {
         println!("Starting downloads");
         // Grab urls from data file
@@ -260,7 +363,7 @@ fn main() {
             println!("ID: {}", id);
 
             // Download each id
-            let res = download_item(&id, &PATHCMD, &APPID);
+            let res = download_item(&id, &PATHCMD, &appid);
             if res == false {
                 println!("Failed to download id: {}", id);
             } else {
@@ -281,7 +384,7 @@ fn main() {
                 println!("Cleaned up urls file successfully");
                 println!(
                     "Go here: {} to get your mods",
-                    PATHCMD.to_owned() + _PATHCONTENT + APPID
+                    PATHCMD.to_owned() + _PATHCONTENT + &appid
                 );
             }
             Err(_) => println!("Failed to clean up urls file"),

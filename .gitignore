@@ -3,3 +3,5 @@
 /zips
 /target
 *.lock
+urls40k.txt
+data/urls.txt
