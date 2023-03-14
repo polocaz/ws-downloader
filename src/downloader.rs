@@ -2,6 +2,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 
+use crate::ConfigStruct;
+
 fn download_item(modid: &str, cmdpath: &str, appid: &str) -> bool {
     // Run the executable with the specified parameters
     let mut command = Command::new(cmdpath.to_owned() + "steamcmd.exe")
@@ -96,7 +98,7 @@ fn remove_done(filename: &str, lines_to_remove: Vec<usize>) -> io::Result<()> {
 //////////////////////////////////////////////////////////////////////////////////////////
 /// 
 
-pub fn process_download(urlslocation: &str ) {
+pub fn process_download(urlslocation: &str, config: ConfigStruct ) {
     // Grab urls from data file
     let urls: Vec<String> = get_urls(urlslocation);
     let mut succeeded: Vec<usize> = Vec::new();
@@ -114,7 +116,7 @@ pub fn process_download(urlslocation: &str ) {
         println!("ID: {}", id);
 
         // Download each id
-        let res = download_item(&id, &PATHCMD, &appid);
+        let res = download_item(&id, &config.cmdpath, &config.appid);
         if res == false {
             println!("Failed to download id: {}", id);
         } else {
@@ -135,7 +137,7 @@ pub fn process_download(urlslocation: &str ) {
             println!("Cleaned up urls file successfully");
             println!(
                 "Go here: {} to get your mods",
-                PATHCMD.to_owned() + _PATHCONTENT + &appid
+                config.cmdpath + &config.contentpath + &config.appid
             );
         }
         Err(_) => println!("Failed to clean up urls file"),

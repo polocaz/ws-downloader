@@ -1,6 +1,7 @@
+use std::env;
 use std::fs::{self, File, OpenOptions};
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write, Error};
 mod htmlutils;
 mod downloader;
 
@@ -8,8 +9,12 @@ use std::path::{Path, PathBuf};
 
 use crate::downloader::process_download;
 
-static PATHCMD: &str = "C:\\Tools\\SteamCMD\\";
-static _PATHCONTENT: &str = "steamapps\\workshop\\content\\";
+// Defaults cmdpath and content path
+pub struct ConfigStruct {
+    cmdpath: String,
+    contentpath: String,
+    appid: String,
+}
 
 struct ModInfo {
     path: String,
@@ -156,7 +161,9 @@ fn find_kenshimod_file(dir: &String) -> Option<String> {
 }
 
 fn get_modinfo(oldpath: &String, appid: &String) -> Option<ModInfo> {
-    if appid == "291400" {
+    println!("App id: {}", appid == "294100");
+    
+    if appid == "294100" {
         Some(ModInfo {
             path: oldpath.to_owned() + "\\About",
             file_name: "About.xml".to_owned(),
@@ -183,13 +190,18 @@ fn rename_folder(old: &String, appid: &String) {
 
     let info = match get_modinfo(&old.to_owned(), appid) {
         Some(info) => info,
-        None => return,
+        None => {
+            println!("Got nothing");
+            return},
     };
     let mut data: String;
     // Grab mod name
     if appid != "233860" {
         data = match get_mod_name(&info.path, &info.file_name, &info.start_tag) {
-            Some(s) => s,
+            Some(s) => {
+                println!("{}", s);
+                s
+            },
             None => {
                 println!(
                     "Failed to get the mod name, rename unsuccessful {}",
@@ -222,12 +234,33 @@ fn rename_folder(old: &String, appid: &String) {
     }
 }
 
+fn read_config_file(filename: &str) -> Result<(String, String), Error> {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+
+    let mut pathcmd = String::new();
+    let mut pathcontent = String::new();
+
+    for line in reader.lines() {
+        let line = line?;
+
+        if line.starts_with("PATHCMD=") {
+            pathcmd = line["PATHCMD=".len()..].to_owned();
+        } else if line.starts_with("PATHCONTENT=") {
+            pathcontent = line["PATHCONTENT=".len()..].to_owned();
+        }
+    }
+
+    Ok((pathcmd, pathcontent))
+}
+
 fn start_rename(directory: &str, appid: &String) {
     for entry in fs::read_dir(directory).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_dir() {
             // rename the directory
+            println!("{}", path.to_str().unwrap());
             rename_folder(&path.to_str().unwrap().to_owned(), &appid)
         }
     }
@@ -239,7 +272,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     // 233860
-    let mut appid = "294100".to_owned();
+    let mut appidarg = "294100".to_owned();
 
     if args.len() < 2 {
         println!(
@@ -247,18 +280,36 @@ fn main() {
         );
         return;
     } else if args.len() == 3 {
-        appid = args[2].to_owned();
+        appidarg = args[2].to_owned();
     }
 
     let arg = &args[1];
 
+    // Read Config
+    let mut config = ConfigStruct {
+        cmdpath: String::from("C:\\Tools\\SteamCMD\\"),
+        contentpath: String::from("steamapps\\workshop\\content\\"),
+        appid: appidarg
+    };
+
+    let cfgfile = read_config_file("data\\config.txt");
+        
+
+    if let Ok(content) = cfgfile {
+        if content.0 != config.cmdpath  {
+            config.cmdpath = content.0;
+        } 
+        else if content.1 != config.contentpath {
+            config.contentpath = content.1;
+        }
+    }
+
     if arg == "rename" {
         println!("Starting renaming");
-        start_rename(".\\data\\mods", &appid);
+        start_rename(".\\data\\mods", &config.appid);
     } else if arg == "download" {
         println!("Starting downloads");
-
-        process_download("data\\urls.txt");
+        process_download("data\\urls.txt", config);
     } else if arg == "collection" {
         println!("Building url list");
         htmlutils::build_url_list("data\\collection.html".to_owned());

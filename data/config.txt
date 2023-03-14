@@ -1,0 +1,2 @@
+PATHCMD=C:\tools\steamcmd\
+PATHCONTENT=steamapps\workshop\content\
