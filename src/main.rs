@@ -7,6 +7,8 @@ mod downloader;
 
 use std::path::{Path, PathBuf};
 
+use scraper::html;
+
 use crate::downloader::process_download;
 
 // Defaults cmdpath and content path
@@ -313,5 +315,7 @@ fn main() {
     } else if arg == "collection" {
         println!("Building url list");
         htmlutils::build_url_list("data\\collection.html".to_owned());
+    } else if arg == "urls" {
+        htmlutils::combine_lists("data\\urls1.txt".to_owned(), "data\\urls2.txt".to_owned());
     }
 }

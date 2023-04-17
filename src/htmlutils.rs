@@ -1,7 +1,7 @@
 use scraper::{Html, Selector};
 use std::fs::{self, File};
 use std::io::prelude::*;
-use std::io::{Error, ErrorKind};
+use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::collections::HashSet;
 
 fn extract_hrefs(html: &str) -> Vec<String> {
@@ -69,4 +69,26 @@ pub fn build_url_list(collpath: String ) {
         }
     };
 
+}
+
+pub fn combine_lists(file1: String, file2: String) {
+    // Open the first file and read its contents
+    let file1 = File::open(file1).expect("Failed to open file 1");
+    let reader1 = BufReader::new(file1);
+    let urls1: Vec<String> = reader1.lines().map(|line| line.unwrap()).collect();
+
+    // Open the second file and read its contents
+    let file2 = File::open(file2).expect("Failed to open file 2");
+    let reader2 = BufReader::new(file2);
+    let urls2: Vec<String> = reader2.lines().map(|line| line.unwrap()).collect();
+
+    // Combine the lists and remove duplicates
+    let mut all_urls = HashSet::new();
+    all_urls.extend(urls1);
+    all_urls.extend(urls2);
+
+    // Convert the HashSet to a Vec<String> and print the combined list of URLs
+    let urls: Vec<String> = all_urls.into_iter().collect();
+    
+    write_url_file(urls);
 }

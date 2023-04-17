@@ -3,9 +3,6 @@
 /zips
 /target
 *.lock
-urls40k.txt
-data/urls.txt
 data/mods.7z
-data/urls.txt
-data/collection.html
-data/urls.txt
+data/*.html
+data/*.txt
